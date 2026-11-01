@@ -2,7 +2,14 @@ import pywikibot
 from pywikibot import pagegenerators
 from pywikibot.bot import ExistingPageBot
 
+# This is required for the text that is shown when you run this script
+# with the parameter -help.
+docuReplacements = {'&params;': pagegenerators.parameterHelp}  # noqa: N816
+
 class MyBot(ExistingPageBot):
+
+    summary_key = 'basic-changing'
+    use_redirects = False
 
     update_options = {
         'text': 'This is a test text',
