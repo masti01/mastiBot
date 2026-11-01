@@ -21,7 +21,6 @@ will be done.
 Use global -simulate option for test purposes. No changes to live wiki will be done.
 
 """
-
 #
 # (C) masti, 2006-2026
 #
@@ -37,7 +36,7 @@ from pywikibot.bot import CurrentPageBot
 from datetime import datetime
 
 from mwparserfromhell import parse
-from mwparserfromhell.nodes import Wikilink
+from mwparserfromhell.nodes import Wikilink, Template
 from mwparserfromhell.wikicode import Wikicode
 
 # This is required for the text that is shown when you run this script
@@ -66,7 +65,7 @@ class MyBot(CurrentPageBot):
     @staticmethod
     def ek(parsed: Wikicode) -> bool:
         # templaete ek and synonims
-        ekname = ("ek", "ekspresowe kasowanko", "usuń", "speedy", "delete")
+        ekname = ("EK", "ek", "ekspresowe kasowanko", "usuń", "speedy", "delete")
         for t in parsed.filter_templates():
             if t.name.matches(ekname):
                 return True
@@ -80,26 +79,85 @@ class MyBot(CurrentPageBot):
     def file(wikilink: Wikilink) -> bool:
         return wikilink.title.lower().startswith(("plik:", "file:"))
 
+    @staticmethod
+    def link_interwiki(tmpl: Template) -> bool:
+        # check if link is in {{link-interwiki}}
+        return tmpl.name.lower().startswith("link-interwiki")
+    
+    def wikilinks(self, parsed) -> int:
+        # count Wikilinks in parsed text
+        if self.opt.test:
+            pywikibot.output(f'PARSED:\n{parsed}')
+
+        # wikilinks
+        links = len(parsed.filter_wikilinks())
+        
+        # Categories
+        cat = len(parsed.filter_wikilinks(matches=lambda link: self.category(link)))
+
+        # Files
+        files = len(parsed.filter_wikilinks(matches=lambda link: self.file(link)))
+        
+        # link-interwikis
+        interwiki_links = len(parsed.filter_templates(matches=lambda tmpl: tmpl.name.lower().strip().startswith("link-interwiki")))
+
+        # categories & files are not real Wikilinks
+        return links - cat - files + interwiki_links
+
+    @staticmethod
+    def template_required(results) -> bool:
+        # check if cleanup template is required
+        for test in ('links', 'categories', 'refs'):
+            if not results[test]:
+                return True
+        return False
+
+    @staticmethod
+    def common_element(a, b):
+        # check if 2 lists have at least one common elemnet
+        return [e for e in a if e in b]
+
+    def build_template(self, results, tmpl: Template) -> None:
+        # year-month for paarams
+        datestr = datetime.now().strftime('%Y-%m')
+        params = []
+        for p in tmpl.params:
+            params.append(p.name)
+        if self.opt.test:
+            pywikibot.output(f'>>> PARAMSL{params}')
+
+        if not results['links']:
+            results['summary'].append('linki')
+            if not self.common_element(params, ('linki', 'linki wewnętrzne')):
+                tmpl.add('linki',datestr)
+        if not results['categories']:
+            results['summary'].append('kategorie')
+            if not self.common_element(params, ('kategoria', 'kategorie')):
+                tmpl.add('kategorie',datestr)
+        if not results['refs']:
+            results['summary'].append('źródła')
+            if not self.common_element(params, ('źródła', 'Źródła', 'WER', 'wer', 'brak źródeł', 'dodać źródła')):
+                tmpl.add('źródła', datestr)
+
+
     def treat_page(self) -> None:
 
         if self.opt.test:
             pywikibot.output(f'Title:[[{self.current_page.title()}]]')
-            pywikibot.output(f'Depth:{self.current_page.depth}')
 
-        """ parse page for checks"""
+        # parse page for checks
         parsed = parse(self.current_page.text)
 
-        #TODO: move to class level
-        tests = {'links': 0,
-                 'cat': 0,
-                 'files': 0,
-                 'template': 0,
-                 'infobox': 0,
-                 'refs': 0,
-                 'dopracować': 0
-                 }
-        # cleanupTmpl = False
-        summary = []
+        article_requirements = {
+                'links': 0,
+                'categories': 0,
+                'files': 0,
+                'templates': 0,
+                'infoboxes': 0,
+                'refs': 0,
+                'cleanuptmpl': None,
+                'summary': list()
+        }
 
         if self.current_page.isRedirectPage():
             pywikibot.output(f'Skipping REDIRECT: [[{self.current_page.title()}]]')
@@ -112,118 +170,57 @@ class MyBot(CurrentPageBot):
             return
 
         # Wikilinks
-        wikilinks = parsed.filter_wikilinks()
-        tests['links'] = len(wikilinks)
-        if self.opt.test:
-            pywikibot.output(f'Wikiinks count: {wikilinks}')
+        article_requirements['links'] = self.wikilinks(parsed)
 
         # Templates
-        for t in parsed.filter_templates():
-            if self.opt.test:
-                pywikibot.output(f'Template:[[{t}]]')
-        tests['template'] = len(parsed.filter_templates())
+        if self.opt.test:
+            for t in parsed.filter_templates():
+                pywikibot.output(f'Template:[[{t.replace('\n', '')}]]')
+        article_requirements['templates'] = len(parsed.filter_templates())
 
         # infobox
-        tests['infobox'] = len(
+        article_requirements['infoboxes'] = len(
             parsed.filter_templates(matches=lambda tmpl: tmpl.name.lower().strip().endswith("infobox")))
 
         # dopracowć
-        tests['dopracować'] = len(
-            parsed.filter_templates(matches=lambda tmpl: tmpl.name.lower().strip().startswith("dopracować")))
-
-        # References
-        tests['refs'] = len(parsed.filter_tags(matches=lambda tag: tag.tag.lower() == "ref"))
+        try:
+            article_requirements['cleanuptmpl'] = parsed.filter_templates(matches=lambda tmpl: tmpl.name.lower().strip().startswith("dopracować"))[0]
+        except IndexError:
+            pass
 
         # Categories
-        tests['cat'] = len(parsed.filter_wikilinks(matches=lambda link: self.category(link)))
+        article_requirements['categories'] = len(parsed.filter_wikilinks(matches=lambda link: self.category(link)))
 
-        # Files
-        tests['files'] = len(parsed.filter_wikilinks(matches=lambda link: self.file(link)))
+        # References
+        article_requirements['refs'] = len(parsed.filter_tags(matches=lambda tag: (tag.tag.lower() == "ref" and not tag.endswith('/>'))))
+        if self.opt.test:
+            pywikibot.output(f'Refs:{parsed.filter_tags(matches=lambda tag: (tag.tag.lower() == "ref" and not tag.endswith('/>')))}')
 
-        # categories & files are not real Wikilinks
-        tests['links'] = tests['links'] - tests['cat'] - tests['files']
+        # check if clenup template is required
+        if self.template_required(article_requirements):
+            pywikibot.output('#####################')
+            pywikibot.output(f'treat_page results:{article_requirements}')
+            pywikibot.output('#####################')
 
-        """
-        else:
-            if self.opt.test:
-                pywikibot.output(u'Title:%s' % self.current_page.title())
-                pywikibot.output(u'Depth:%s' % self.current_page.depth)
-            for l in self.current_page.linkedPages(namespaces=0):
-                if self.opt.test:
-                    pywikibot.output(u'Links to:[[%s]]' % l.title())
-                tests['links'] += 1
-                # pywikibot.output(u'Links:%s' % len(list(self.current_page.linkedPages(namespaces=0))))
-            for t, p in textlib.extract_templates_and_params(text, remove_disabled_parts=True):
-                if self.opt.test:
-                    pywikibot.output('Template:[[%s]]' % t)
-                tests['template'] += 1
-                if 'infobox' in t:
-                    tests['infobox'] += 1
-                if 'dopracować' in t.lower():
-                    tests['dopracować'] = True
-                if t.lower() in tmplcat:  # check for category adding templates
-                    tests['cat'] += 1
-                    if self.opt.test:
-                        pywikibot.output('Current cat#%i' % tests['cat'])
-                    # cleanupTmpl = (t, p)
-                # if 'rok w' in t or 'Rok w' in t:
-                #     links['cat'] += 1
+            # create template to insert
+            if article_requirements['cleanuptmpl']:
+                cleanup_tmpl = article_requirements['cleanuptmpl']
+            else:
+                cleanup_tmpl = Template("Dopracować")
+                parsed.insert(0, cleanup_tmpl)
+                parsed.insert(1, '\n')
 
-            for c in textlib.getCategoryLinks(text):
-                if self.opt.test:
-                    pywikibot.output('Category:%s' % c)
-                tests['cat'] += 1
-                if self.opt.test:
-                    pywikibot.output('Current cat#%i' % tests['cat'])
-            for r in refR.finditer(text):
-                if self.opt.test:
-                    pywikibot.output('Ref:%s' % r.group('all'))
-                tests['refs'] += 1
-            if self.opt.test:
-                pywikibot.output('Links=%s' % tests)
-                # pywikibot.output('Cleanup=%s' % re.sub('\n','',textlib.glue_template_and_params(cleanupTmpl)))
-
-        if tests['dopracować']:
-            if self.opt.test:
-                pywikibot.output('Cleanup Tmpl FOUND')
-        else:
-            # add {{Dopracować}}
-            t = 'Dopracować'  # template title
-            p = {}  # template params
-            today = datetime.now()
-            datestr = today.strftime('%Y-%m')
-            if self.opt.test:
-                pywikibot.output('Date:%s' % datestr)
-            if not (tests['links'] and tests['cat']):
-                if not tests['links']:
-                    p['linki'] = datestr
-                    summary.append('linki')
-                if not tests['cat']:
-                    p['kategoria'] = datestr
-                    summary.append('kategorie')
-                if not tests['refs']:
-                    p['przypisy'] = datestr
-                    summary.append('przypisy')
-            cleanup_tmpl = (t, p)
-
-            if not p:
-                if self.opt.test:
-                    pywikibot.output('Nothing to add')
-                return
+            self.build_template(article_requirements, cleanup_tmpl)
 
             if self.opt.test:
-                pywikibot.output('Cleanup Tmpl TO ADD')
-                pywikibot.output('summary:%s' % summary)
-                pywikibot.output('params:%s' % p)
-            text = re.sub('\n', '', textlib.glue_template_and_params(cleanup_tmpl)) + '\n' + text
+                pywikibot.output(f'CleanupTmpl: {cleanup_tmpl}')
+                pywikibot.output(f'nodes: {parsed.nodes}')
 
-            # if summary option is None, it takes the default i18n summary from
-            # i18n subdirectory with summary_key as summary key.
-            self.put_current(text,
-                             summary=f'Sprawdzanie nowych stron: w artykule należy dopracować: {','.join(summary)}')
-        """
-        pywikibot.output('#####################')
-        pywikibot.output(f'treat_page results:{tests}')
+            if self.opt.test:
+                pywikibot.output(f'*****************\n{parsed}\n*****************')
+
+            self.put_current(str(parsed), summary=f'Sprawdzanie nowych stron: w artykule należy dopracować: {', '.join(article_requirements['summary'])}')
+
 
 def main(*args: str) -> None:
     """
