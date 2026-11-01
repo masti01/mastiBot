@@ -23,12 +23,27 @@ class MyBot(ExistingPageBot):
         self.put_current(text, summary=self.opt.summary)
 
 def main(*args: str) -> None:
-    """Parse command line arguments and invoke bot."""
+    """
+    Process command line arguments and invoke bot.
+
+    If args is an empty list, sys.argv is used.
+
+    :param args: command line arguments
+    """
     options = {}
-    gen_factory = pagegenerators.GeneratorFactory()
+
     # Option parsing
     local_args = pywikibot.handle_args(args)  # global options
+
+    # This factory is responsible for processing command line arguments
+    # that are also used by other scripts and that determine on which pages
+    # to work on.
+    gen_factory = pagegenerators.GeneratorFactory()
+
+    # Process pagegenerators arguments
     local_args = gen_factory.handle_args(local_args)  # generators options
+
+    # Parse your own command line arguments
     for arg in local_args:
         opt, sep, value = arg.partition(':')
         if opt in ('-summary', '-text'):
