@@ -13,7 +13,8 @@ class MyBot(ExistingPageBot):
 
     update_options = {
         'text': 'This is a test text',
-        'summary': 'Bot: a bot test edit with Pywikibot.'
+        'summary': None, #  No default edit summary
+        'test': False,  # switch on test functionality
     }
 
     def treat_page(self):
