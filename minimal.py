@@ -46,10 +46,15 @@ def main(*args: str) -> None:
     # Parse your own command line arguments
     for arg in local_args:
         opt, sep, value = arg.partition(':')
-        if opt in ('-summary', '-text'):
+        opt = opt[1:]
+        if opt in ('summary', 'text'):
             if not value:
                 pywikibot.input('Please enter a value for ' + opt)
-            options[opt[1:]] = value
+            options[opt] = value
+        # take the remaining options as booleans.
+        # You will get a hint if they aren't pre-defined in your bot class
+        else:
+            options[opt] = True
     MyBot(generator=gen_factory.getCombinedGenerator(), **options).run()
 
 if __name__ == '__main__':
