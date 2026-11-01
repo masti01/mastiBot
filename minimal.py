@@ -32,6 +32,8 @@ def main(*args: str) -> None:
     for arg in local_args:
         opt, sep, value = arg.partition(':')
         if opt in ('-summary', '-text'):
+            if not value:
+                pywikibot.input('Please enter a value for ' + opt)
             options[opt[1:]] = value
     MyBot(generator=gen_factory.getCombinedGenerator(), **options).run()
 
