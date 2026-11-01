@@ -1,2 +1,3 @@
 pywikibot
 pywikibot-scripts
+mwparserfromhell
