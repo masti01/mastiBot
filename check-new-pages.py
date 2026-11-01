@@ -2,28 +2,31 @@
 """
 
 Call:
-    time /home/masti/venvwrapper python3 pwb.py masti/ms-psb.py -page:'Wikipedysta:PuchaczTrado/PSB/1' -maxlines:10000 -summary:'Bot uaktualnia tabelę #1'
+    pwb check-new-pages.py -ns:0 -newpages -pt:0 -always
 
-The following parameters are supported:
+This is a bot to check new articles:
+* if no categories: add {{Dopracowac|kategoria=YYYY-MM}}
+* if no wikilinks: add {{Dopracować|linki=YYYY-MM}}
+# * if no refs: add {{Dopracować|przypisy=YYYY-MM}}
 
-&params;
+{{Dopracować}} has to be once per page: combine with already existing
+
+Use global -simulate option for test purposes. No changes to live wiki
+will be done.
 
 -always           If used, the bot won't ask if it should file the message
                   onto user talk page.
--outpage          Results page; otherwise "Wikipedysta:mastiBot/test" is used
--maxlines         Max number of entries before new subpage is created; default 1000
--text:            Use this text to be added; otherwise 'Test' is used
--replace:         Dont add text but replace it
--top              Place additional text on top of the page
 -summary:         Set the action summary message for the edit.
 
 Use global -simulate option for test purposes. No changes to live wiki will be done.
 
 """
 
+#TODO: move to mwparserfromhell from textlib
+
 import pywikibot
 from pywikibot import pagegenerators
-from pywikibot.bot import ExistingPageBot
+from pywikibot.bot import ExistingPageBot, CurrentPageBot
 
 from datetime import datetime
 import re
@@ -42,22 +45,25 @@ tmplcat = {
     'animanga infobox/ova',
 }
 
-class MyBot(ExistingPageBot):
+class MyBot(CurrentPageBot):
 
     summary_key = 'basic-changing'
     use_redirects = False
 
     update_options = {
-        'text': 'This is a test text',
         'summary': None, #  No default edit summary
         'test': False,  # switch on test functionality
     }
 
     def treat_page(self):
         """Load the given page, do some changes, and save it."""
+        #TODO: replace regex with mwpfh filter refs
         refR = re.compile(r'(?P<all><ref[^>]*?>)')
         # clenaupR = re.compile(r'(?i){{dopracować.*?}}')
+
         text = self.current_page.text
+
+        #TODO: move to class level
         links = {'links': 0,
                  'cat': 0,
                  'template': 0,
@@ -137,7 +143,7 @@ class MyBot(ExistingPageBot):
                 if not links['refs']:
                     p['przypisy'] = datestr
                     summary.append('przypisy')
-            cleanupTmpl = (t, p)
+            cleanup_tmpl = (t, p)
 
             if not p:
                 if self.opt.test:
@@ -148,12 +154,12 @@ class MyBot(ExistingPageBot):
                 pywikibot.output('Cleanup Tmpl TO ADD')
                 pywikibot.output('summary:%s' % summary)
                 pywikibot.output('params:%s' % p)
-            text = re.sub('\n', '', textlib.glue_template_and_params(cleanupTmpl)) + '\n' + text
+            text = re.sub('\n', '', textlib.glue_template_and_params(cleanup_tmpl)) + '\n' + text
 
             # if summary option is None, it takes the default i18n summary from
             # i18n subdirectory with summary_key as summary key.
             self.put_current(text,
-                             summary='Sprawdzanie nowych stron, w artykule należy dopracować: %s' % ','.join(summary))
+                             summary=f'Sprawdzanie nowych stron: w artykule należy dopracować: {','.join(summary)}')
 
 def main(*args: str) -> None:
     """
